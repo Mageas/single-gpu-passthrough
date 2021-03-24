@@ -122,10 +122,10 @@ Use the dumped/downloaded vbios and open it in a hex editor.
 Search for the strings "VIDEO".
 ![images/vbios1.jpg](images/vbios1.jpg)
 
-Then you have to search for a U that is in front of VIDEO. Delete all of the code above the U.
+Then you have to search for the first U that is in front of VIDEO.
 ![images/vbios2.jpg](images/vbios2.jpg)
 
-Save your patched vbios.
+Delete all of the code above the U then save your patched vbios.
 
 ## Passthrough the GPU
 
