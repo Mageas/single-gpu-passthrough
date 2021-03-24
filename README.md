@@ -1,21 +1,46 @@
 # VFIO Single GUP Passthrough
 
-  - [Enable & Verify IOMMU](#enable--verify-iommu)
-  - [Install required tools](#install-required-tools)
-  - [Setup Guest OS](#setup-guest-os)
-  - [Guest OS Hardware](#guest-os-hardware)
-      - [Add](#add)
-      - [Remove Optional](#remove-optional)
-  - [GPU patching](#gpu-patching)
-  - [Passthrough the GPU](#passthrough-the-gpu)
-      - [NVIDIA](#nvidia)
-      - [AMD](#amd)
-  - [Libvirt Hooks](#libvirt-hooks)
-      - [NVIDIA](#nvidia)
-      - [AMD](#amd)
-  - [Optional customization](#optional-customization)
-      - [CPU Pinning](#cpu-pinning)
-      - [Nested virtualization](#nested-virtualization)
+This tutorial is only for AMD CPUs.
+
+## Summary
+- [Enable & Verify IOMMU](#enable--verify-iommu)
+- [Install required tools](#install-required-tools)
+- [Setup Guest OS](#setup-guest-os)
+- [Guest OS Hardware](#guest-os-hardware)
+    - [Add](#add)
+    - [Remove Optional](#remove-optional)
+- [GPU patching](#gpu-patching)
+- [Passthrough the GPU](#passthrough-the-gpu)
+    - [NVIDIA](#nvidia)
+    - [AMD](#amd)
+- [Libvirt Hooks](#libvirt-hooks)
+    - [NVIDIA](#nvidia)
+    - [AMD](#amd)
+- [Optional customization](#optional-customization)
+    - [CPU Pinning](#cpu-pinning)
+    - [Nested virtualization](#nested-virtualization)
+
+## Special Thanks to: 
+
+## [Arch wiki](https://wiki.archlinux.org/index.php/PCI_passthrough_via_OVMF)
+The best way to learn how GPU passthrough is working.
+
+## [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial)
+The best tutorial on GPU passthrough!
+
+## [joeknock90](https://github.com/joeknock90/Single-GPU-Passthrough)
+Really good tutorial on the NVIDIA GPU patch.
+
+## [muta](https://www.youtube.com/watch?v=BUSrdUoedTo)
+Bring me in the VFIO community.
+
+## [Zeptic](https://www.youtube.com/watch?v=VKh2eKPnmXs)
+How to get good performances in nested virtualization.
+
+## [Quentin Franchi](https://gitlab.com/dev.quentinfranchi/vfio)
+The scripts for AMD GPUs.
+
+## [All these people](https://github.com/joeknock90/Single-GPU-Passthrough#special-thanks-to)
 
 ## Enable & Verify IOMMU
 
