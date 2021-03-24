@@ -1,5 +1,3 @@
-TODO: ADD $ Before commands
-
 # VFIO Single GUP Passthrough
 
 <!-- TOC -->
@@ -36,6 +34,7 @@ Enable IOMMU support by setting the kernel parameter.
 
 After rebooting, check that the groups are valid.
 ```
+$
 shopt -s nullglob
 for g in `find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V`; do
     echo "IOMMU Group ${g##*/}:"
@@ -62,23 +61,23 @@ If your card is not in an isolated group, you need to perform [ACS override patc
 
 TODO: Install tools.
 ```
-pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
+$ pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
 ```
 
 TODO: Enable libvirtd.
 ```
-systemctl enable --now libvirtd
+$ systemctl enable --now libvirtd
 ```
 
 Configuring libvirt.
 ```
-virsh net-start default
-virsh net-autostart default
+$ virsh net-start default
+$ virsh net-autostart default
 ```
 
 TODO: Add groups to user.
 ```
-usermod -aG kvm,input,libvirt <username>
+$ usermod -aG kvm,input,libvirt <username>
 ```
 
 ## Setup Guest OS
@@ -117,6 +116,8 @@ You can remove unused hardware:
 
 ## GPU patching
 
+
+
 ## Passthrough the GPU
 
 ### NVIDIA
@@ -129,7 +130,7 @@ Add custom rom to all **NVIDIA** components:
 </hostdev>
 ```
 
-TODO: You have to add these lines to avoid NVIDIA error 43:
+TODO: You have to add these lines to avoid NVIDIA error 43 and... :
 ```
 <features>
   ...
@@ -145,7 +146,7 @@ TODO: You have to add these lines to avoid NVIDIA error 43:
 
 ### AMD
 
-TODO: You have to add these lines to avoid NVIDIA error 43:
+TODO: 
 ```
 <features>
   ...
@@ -214,7 +215,7 @@ fi
 
 Go ahead and restart libvirt to use the newly installed hook helper
 ```
-sudo service libvirtd restart
+$ sudo service libvirtd restart
 ```
 
 **Do not copy the below scripts. Use them as a template, but write your own.**
