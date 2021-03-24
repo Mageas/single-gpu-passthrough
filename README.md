@@ -1,3 +1,5 @@
+TODO: ADD $ Before commands
+
 # VFIO Single GUP Passthrough
 
 <!-- TOC -->
@@ -92,7 +94,7 @@ When the VM creation wizard asks you to name your VM (final step before clicking
 - **CPU Topology**:
     - **Sockets** to *1*
     - **Cores** to *(number of cores you want to passthrough)*
-    - **Threads** to *(how many threads per core)*
+    - **Threads** to *(how many virtual threads per physical core)*
 
 You need to install the virtual machine.
 
@@ -100,7 +102,7 @@ You need to install the virtual machine.
 
 ### Add
 
-You need to passthrough hardware to the guest
+You need to passthrough hardware to the guest.
 
 In the *PCI Host Device* you have to add all the components of the graphics card (NVIDIA or AMD). You can optionally add your audio, etc.
 
@@ -108,7 +110,7 @@ In the *USB Host Device* you can add your mouse, keyboard, microphone, etc.
 
 ### Remove (Optional)
 
-You can remove unused hardware 
+You can remove unused hardware:
 - *Display spice*
 - *Channel spice*
 - *Video QXL*
@@ -119,7 +121,7 @@ You can remove unused hardware
 
 ### NVIDIA
 
-Add custom rom to all **NVIDIA** components
+Add custom rom to all **NVIDIA** components:
 ```
 <hostdev>
   ...
@@ -127,7 +129,7 @@ Add custom rom to all **NVIDIA** components
 </hostdev>
 ```
 
-You have to add these lines to avoid NVIDIA error 43
+TODO: You have to add these lines to avoid NVIDIA error 43:
 ```
 <features>
   ...
@@ -145,7 +147,158 @@ You have to add these lines to avoid NVIDIA error 43
 
 ## Libvirt Hooks
 
+Using libvirt hooks will allow us to automatically run scripts before the VM is started and after the VM has stopped.
+
+Your directory structure should looks like this:
+```
+/etc/libvirt/hooks
+├── kvm.conf
+├── qemu <- The script that does the magic
+└── qemu.d
+    └── {VM Name}
+        ├── prepare
+        │   └── begin
+        │       └── start.sh
+        └── release
+            └── end
+                └── revert.sh
+```
+
+qemu
+```
+#!/bin/bash
+#
+# Author: Sebastiaan Meijer (sebastiaan@passthroughpo.st)
+#
+# Copy this file to /etc/libvirt/hooks, make sure it's called "qemu".
+# After this file is installed, restart libvirt.
+# From now on, you can easily add per-guest qemu hooks.
+# Add your hooks in /etc/libvirt/hooks/qemu.d/vm_name/hook_name/state_name.
+# For a list of available hooks, please refer to https://www.libvirt.org/hooks.html
+#
+
+GUEST_NAME="$1"
+HOOK_NAME="$2"
+STATE_NAME="$3"
+MISC="${@:4}"
+
+BASEDIR="$(dirname $0)"
+
+HOOKPATH="$BASEDIR/qemu.d/$GUEST_NAME/$HOOK_NAME/$STATE_NAME"
+
+set -e # If a script exits with an error, we should as well.
+
+# check if it's a non-empty executable file
+if [ -f "$HOOKPATH" ] && [ -s "$HOOKPATH"] && [ -x "$HOOKPATH" ]; then
+    eval \"$HOOKPATH\" "$@"
+elif [ -d "$HOOKPATH" ]; then
+    while read file; do
+        # check for null string
+        if [ ! -z "$file" ]; then
+          eval \"$file\" "$@"
+        fi
+    done <<< "$(find -L "$HOOKPATH" -maxdepth 1 -type f -executable -print;)"
+fi
+```
+
+Go ahead and restart libvirt to use the newly installed hook helper
+```
+sudo service libvirtd restart
+```
+
+**Do not copy the below scripts. Use them as a template, but write your own.**
+
+Make sure to substitute the correct bus addresses for the devices you'd like to passthrough to your VM. 
+Just in case it's still unclear, you get the virsh PCI device IDs from the [Enable & Verify IOMMU](#enable--verify-iommu) script.
+Translate the address for each device as follows: `IOMMU Group 1 01:00.0 ...` --> `VIRSH_...=pci_0000_01_00_0`.
+
+kvm.conf
+```
+VIRSH_GPU_VIDEO=pci_0000_09_00_0
+VIRSH_GPU_AUDIO=pci_0000_09_00_1
+VIRSH_GPU_USB=pci_0000_09_00_2
+VIRSH_GPU_SERIAL=pci_0000_09_00_3
+```
+
 ### NVIDIA
+
+start.sh
+```
+#!/bin/bash
+# Helpful to read output when debugging
+set -x
+
+# Load variables
+source "/etc/libvirt/hooks/kvm.conf"
+
+# Stop display manager
+systemctl stop lightdm.service
+
+# Unbind VTconsoles
+echo 0 > /sys/class/vtconsole/vtcon0/bind
+echo 0 > /sys/class/vtconsole/vtcon1/bind
+
+# Unbind EFI-Framebuffer
+echo efi-framebuffer.0 > /sys/bus/platform/drivers/efi-framebuffer/unbind
+
+# Avoid a Race condition
+sleep 5
+
+# Unload all Nvidia drivers
+modprobe -r nvidia_drm
+modprobe -r nvidia_modeset
+modprobe -r nvidia_uvm
+modprobe -r nvidia
+
+# Unbind the GPU from display driver
+virsh nodedev-detach $VIRSH_GPU_VIDEO
+virsh nodedev-detach $VIRSH_GPU_AUDIO
+virsh nodedev-detach $VIRSH_USB
+virsh nodedev-detach $VIRSH_SERIAL_BUS
+
+# Load VFIO Kernel Module  
+modprobe vfio-pci 
+```
+
+revert.sh
+```
+#!/bin/bash
+# Helpful to read output when debugging
+set -x
+
+# Load variables
+source "/etc/libvirt/hooks/kvm.conf"
+
+# Unload VFIO-PCI Kernel Driver
+modprobe -r vfio-pci
+modprobe -r vfio_iommu_type1
+modprobe -r vfio
+
+# Rebind GPU to Nvidia Driver
+virsh nodedev-reattach $VIRSH_GPU_VIDEO
+virsh nodedev-reattach $VIRSH_GPU_AUDIO
+virsh nodedev-reattach $VIRSH_USB
+virsh nodedev-reattach $VIRSH_SERIAL_BUS
+
+# Rebind VT consoles
+echo 1 > /sys/class/vtconsole/vtcon0/bind
+echo 1 > /sys/class/vtconsole/vtcon1/bind
+
+# Bind EFI-Framebuffer
+nvidia-xconfig --query-gpu-info > /dev/null 2>&1
+echo "efi-framebuffer.0" > /sys/bus/platform/drivers/efi-framebuffer/bind
+
+# Load all Nvidia drivers
+modprobe nvidia_drm
+modprobe nvidia_modeset
+modprobe drm_kms_helper
+modprobe drm
+modprobe nvidia_uvm
+modprobe nvidia
+
+# Restart Display Manager
+systemctl start lightdm.service
+```
 
 ### AMD
 
