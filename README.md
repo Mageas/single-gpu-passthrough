@@ -34,8 +34,7 @@ Enable IOMMU support by setting the kernel parameter.
 
 After rebooting, check that the groups are valid.
 ```
-$
-shopt -s nullglob
+$ shopt -s nullglob
 for g in `find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V`; do
     echo "IOMMU Group ${g##*/}:"
     for d in $g/devices/*; do
@@ -396,7 +395,127 @@ systemctl start lightdm.service
 
 ### CPU Pinning
 
+My setup has an AMD Ryzen 9 3900X which has 8 physical cores and 16 threads.
+
+It's very important that when we passthrough a core, we include its sibling. To get a sense of your cpu topology, use the command `$ lscpu -e`. A matching core id (i.e. "CORE" column) means that the associated threads (i.e. "CPU" column) run on the same physical core.
+```
+CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ    MINMHZ
+  0    0      0    0 0:0:0:0          yes 4823.4370 2200.0000
+  1    0      0    1 1:1:1:0          yes 4559.7651 2200.0000
+  2    0      0    2 2:2:2:0          yes 4689.8428 2200.0000
+  3    0      0    3 3:3:3:0          yes 4426.1709 2200.0000
+  4    0      0    4 4:4:4:1          yes 5224.2178 2200.0000
+  5    0      0    5 5:5:5:1          yes 5090.6250 2200.0000
+  6    0      0    6 6:6:6:1          yes 5224.2178 2200.0000
+  7    0      0    7 7:7:7:1          yes 4957.0308 2200.0000
+  8    0      0    0 0:0:0:0          yes 4823.4370 2200.0000
+  9    0      0    1 1:1:1:0          yes 4559.7651 2200.0000
+ 10    0      0    2 2:2:2:0          yes 4689.8428 2200.0000
+ 11    0      0    3 3:3:3:0          yes 4426.1709 2200.0000
+ 12    0      0    4 4:4:4:1          yes 5224.2178 2200.0000
+ 13    0      0    5 5:5:5:1          yes 5090.6250 2200.0000
+ 14    0      0    6 6:6:6:1          yes 5224.2178 2200.0000
+ 15    0      0    7 7:7:7:1          yes 4957.0308 2200.0000
+```
+
+TODO: According to the logic seen above, here are my core and their threads binding
+```
+Core 1: 0, 8
+Core 2: 1, 9
+Core 3: 2, 10
+Core 4: 3, 11
+Core 5: 4, 12
+Core 6: 5, 13
+Core 7: 6, 14
+Core 8: 7, 15
+```
+
+TODO: I want to get 1 core for the host and 7 cores for the host.
+
+It's time to edit the XML configuration of our VM, I show you the final result, everything will be explained below.
+```
+<vcpu placement="static">14</vcpu>
+<iothreads>1</iothreads>
+<cputune>
+  <vcpupin vcpu="0" cpuset="1"/>
+  <vcpupin vcpu="1" cpuset="9"/>
+  <vcpupin vcpu="2" cpuset="2"/>
+  <vcpupin vcpu="3" cpuset="10"/>
+  <vcpupin vcpu="4" cpuset="3"/>
+  <vcpupin vcpu="5" cpuset="11"/>
+  <vcpupin vcpu="6" cpuset="4"/>
+  <vcpupin vcpu="7" cpuset="12"/>
+  <vcpupin vcpu="8" cpuset="5"/>
+  <vcpupin vcpu="9" cpuset="13"/>
+  <vcpupin vcpu="10" cpuset="6"/>
+  <vcpupin vcpu="11" cpuset="14"/>
+  <vcpupin vcpu="12" cpuset="7"/>
+  <vcpupin vcpu="13" cpuset="15"/>
+  <emulatorpin cpuset="0,8"/>
+  <iothreadpin iothread="1" cpuset="0,8"/>
+</cputune>
+```
+
+This command allows you to give the number of threads you want to pass to the guest
+```
+<vcpu placement="static">14</vcpu>
+```
+
+vcpu corresponds to the guest cores, increment by 1 starting with 0.  
+cpuset correspond to your threads you want to passthrough. It is necessary that your core and their threads binding follow each other.
+```
+<cputune>
+  <vcpupin vcpu="0" cpuset="1"/>
+  <vcpupin vcpu="1" cpuset="9"/>
+  <vcpupin vcpu="2" cpuset="2"/>
+  <vcpupin vcpu="3" cpuset="10"/>
+  <vcpupin vcpu="4" cpuset="3"/>
+  <vcpupin vcpu="5" cpuset="11"/>
+  <vcpupin vcpu="6" cpuset="4"/>
+  <vcpupin vcpu="7" cpuset="12"/>
+  <vcpupin vcpu="8" cpuset="5"/>
+  <vcpupin vcpu="9" cpuset="13"/>
+  <vcpupin vcpu="10" cpuset="6"/>
+  <vcpupin vcpu="11" cpuset="14"/>
+  <vcpupin vcpu="12" cpuset="7"/>
+  <vcpupin vcpu="13" cpuset="15"/>
+  ...
+</cputune>
+```
+
+The number of cores you want to passthrough
+```
+<iothreads>1</iothreads>
+```
+
+cpuset corresponds to the bindings of your host core.
+```
+<cputune>
+  ...
+  <emulatorpin cpuset="0,8"/>
+  <iothreadpin iothread="1" cpuset="0,8"/>
+</cputune>
+```
+
 ### Nested virtualization
+
+This allows your virtual machine to bypass some anti-cheats
+
+```
+<domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
+  ...
+  <qemu:commandline>
+    <qemu:arg value="-global"/>
+    <qemu:arg value="kvm-pit.lost_tick_policy=discard"/>
+    <qemu:arg value="-rtc"/>
+    <qemu:arg value="base=localtime"/>
+    <qemu:arg value="-cpu"/>
+    <qemu:arg value="host,host-cache-info=on,kvm=off,l3-cache=on,kvm-hint-dedicated=on,migratable=no,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,hv_vendor_id=Nvidia43FIX,+invtsc,+topoext"/>
+  </qemu:commandline>
+</domain>
+```
+
+Enable Hyper-V under windows virtual machine, reboot virtual machine.
 
 
 
