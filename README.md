@@ -1,26 +1,21 @@
 # VFIO Single GUP Passthrough
 
-<!-- TOC -->
-
-- [VFIO Single GUP Passthrough](#vfio-single-gup-passthrough)
-    - [Enable & Verify IOMMU](#enable--verify-iommu)
-    - [Install required tools](#install-required-tools)
-    - [Setup Guest OS](#setup-guest-os)
-    - [Guest OS Hardware](#guest-os-hardware)
-        - [Add](#add)
-        - [Remove Optional](#remove-optional)
-    - [GPU patching](#gpu-patching)
-    - [Passthrough the GPU](#passthrough-the-gpu)
-        - [NVIDIA](#nvidia)
-        - [AMD](#amd)
-    - [Libvirt Hooks](#libvirt-hooks)
-        - [NVIDIA](#nvidia)
-        - [AMD](#amd)
-    - [Optional customization](#optional-customization)
-        - [CPU Pinning](#cpu-pinning)
-        - [Nested virtualization](#nested-virtualization)
-
-<!-- /TOC -->
+  - [Enable & Verify IOMMU](#enable--verify-iommu)
+  - [Install required tools](#install-required-tools)
+  - [Setup Guest OS](#setup-guest-os)
+  - [Guest OS Hardware](#guest-os-hardware)
+      - [Add](#add)
+      - [Remove Optional](#remove-optional)
+  - [GPU patching](#gpu-patching)
+  - [Passthrough the GPU](#passthrough-the-gpu)
+      - [NVIDIA](#nvidia)
+      - [AMD](#amd)
+  - [Libvirt Hooks](#libvirt-hooks)
+      - [NVIDIA](#nvidia)
+      - [AMD](#amd)
+  - [Optional customization](#optional-customization)
+      - [CPU Pinning](#cpu-pinning)
+      - [Nested virtualization](#nested-virtualization)
 
 ## Enable & Verify IOMMU
 
@@ -58,12 +53,12 @@ If your card is not in an isolated group, you need to perform [ACS override patc
 
 ## Install required tools
 
-TODO: Install tools.
+These tools are required.
 ```
 $ pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
 ```
 
-TODO: Enable libvirtd.
+Enable libvirtd.
 ```
 $ systemctl enable --now libvirtd
 ```
@@ -74,7 +69,7 @@ $ virsh net-start default
 $ virsh net-autostart default
 ```
 
-TODO: Add groups to user.
+If you want to run virt-manager without sudo you can add your user to these groups.
 ```
 $ usermod -aG kvm,input,libvirt <username>
 ```
@@ -115,6 +110,8 @@ You can remove unused hardware:
 
 ## GPU patching
 
+**Only NVIDIA GPU's need to be patched**
+
 To get a rom for your GPU you can either download one from [here](https://www.techpowerup.com/vgabios/) or use nvflash to dump the bios currently on your GPU.
 
 Use the dumped/downloaded vbios and open it in a hex editor.
@@ -139,7 +136,7 @@ Add custom rom to all **NVIDIA** components:
 </hostdev>
 ```
 
-TODO: You have to add these lines to avoid NVIDIA error 43 and... :
+These lines allow to pass the GPU correctly and to avoid the NVIDIA error 43:
 ```
 <features>
   ...
@@ -155,7 +152,7 @@ TODO: You have to add these lines to avoid NVIDIA error 43 and... :
 
 ### AMD
 
-TODO: 
+These lines allow to pass the GPU correctly: 
 ```
 <features>
   ...
@@ -428,7 +425,7 @@ CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ    MINMHZ
  15    0      0    7 7:7:7:1          yes 4957.0308 2200.0000
 ```
 
-TODO: According to the logic seen above, here are my core and their threads binding
+According to the logic seen above, here are my core and their threads binding
 ```
 Core 1: 0, 8
 Core 2: 1, 9
@@ -440,7 +437,7 @@ Core 7: 6, 14
 Core 8: 7, 15
 ```
 
-TODO: I want to get 1 core for the host and 7 cores for the host.
+I want to get 1 core for the host and 7 cores for the host. I will let core 1 for my host (0, 8)
 
 It's time to edit the XML configuration of our VM, I show you the final result, everything will be explained below.
 ```
