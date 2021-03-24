@@ -145,6 +145,17 @@ TODO: You have to add these lines to avoid NVIDIA error 43:
 
 ### AMD
 
+TODO: You have to add these lines to avoid NVIDIA error 43:
+```
+<features>
+  ...
+  <hyperv>
+    ...
+    <vendor_id state="on" value="buttplug"/>
+  </hyperv>
+</features>
+```
+
 ## Libvirt Hooks
 
 Using libvirt hooks will allow us to automatically run scripts before the VM is started and after the VM has stopped.
@@ -301,6 +312,84 @@ systemctl start lightdm.service
 ```
 
 ### AMD
+
+start.sh
+```
+#!/bin/bash
+set -x
+
+# load variables
+source "/etc/libvirt/hooks/kvm.conf"
+
+# Stop display manager
+systemctl stop lightdm.service
+
+# Stop pipewire
+pulse_pid=$(pgrep -u quentin pulseaudio)
+pipewire_pid=$(pgrep -u quentin pipewire-media)
+kill $pulse_pid
+kill $pipewire_pid
+
+# Unbind VTconsoles
+echo 0 > /sys/class/vtconsole/vtcon0/bind
+echo 0 > /sys/class/vtconsole/vtcon1/bind
+
+# Unbind EFI Framebuffer
+# echo efi-framebuffer.0 > /sys/bus/platform/drivers/efi-framebuffer/unbind
+
+# Avoid a race condition by waiting a couple of seconds. This can be calibrated to be shorter or longer if required for your system
+sleep 5
+
+# Unload AMD kernel module
+modprobe -r amdgpu
+
+# Detach GPU devices from host
+virsh nodedev-detach $VIRSH_GPU_VIDEO
+virsh nodedev-detach $VIRSH_GPU_AUDIO
+
+# Load vfio module
+modprobe vfio
+modprobe vfio_pci
+modprobe vfio_iommu_type1
+```
+
+revert.sh
+```
+#!/bin/bash
+set -x
+
+# load variables
+source "/etc/libvirt/hooks/kvm.conf"
+
+# Unload all the vfio modules
+modprobe -r vfio_pci
+modprobe -r vfio_iommu_type1
+modprobe -r vfio
+
+# Attach GPU devices to host
+# Use your GPU and HDMI Audio PCI host device
+virsh nodedev-reattach $VIRSH_GPU_VIDEO
+virsh nodedev-reattach $VIRSH_GPU_AUDIO
+
+# Rebind VTconsoles
+echo 1 > /sys/class/vtconsole/vtcon0/bind
+echo 1 > /sys/class/vtconsole/vtcon1/bind
+
+# Rebind framebuffer to host
+# echo "efi-framebuffer.0" > /sys/bus/platform/drivers/efi-framebuffer/bind
+
+# Load AMD kernel module
+modprobe  amdgpu
+modprobe  gpu_sched
+modprobe  ttm
+modprobe  drm_kms_helper
+modprobe  i2c_algo_bit
+modprobe  drm
+modprobe  snd_hda_intel
+
+# Restart Display Manager
+systemctl start lightdm.service
+```
 
 ## Optional customization
 
