@@ -115,7 +115,17 @@ You can remove unused hardware:
 
 ## GPU patching
 
+To get a rom for your GPU you can either download one from [here](https://www.techpowerup.com/vgabios/) or use nvflash to dump the bios currently on your GPU.
 
+Use the dumped/downloaded vbios and open it in a hex editor.
+
+Search for the strings "VIDEO".
+![images/vbios1.jpg](images/vbios1.jpg)
+
+Then you have to search for a U that is in front of VIDEO. Delete all of the code above the U.
+![images/vbios2.jpg](images/vbios2.jpg)
+
+Save your patched vbios.
 
 ## Passthrough the GPU
 
@@ -395,7 +405,7 @@ systemctl start lightdm.service
 
 ### CPU Pinning
 
-My setup has an AMD Ryzen 9 3900X which has 8 physical cores and 16 threads.
+My setup has an AMD Ryzen 7 3700X which has 8 physical cores and 16 threads.
 
 It's very important that when we passthrough a core, we include its sibling. To get a sense of your cpu topology, use the command `$ lscpu -e`. A matching core id (i.e. "CORE" column) means that the associated threads (i.e. "CPU" column) run on the same physical core.
 ```
@@ -516,37 +526,3 @@ This allows your virtual machine to bypass some anti-cheats
 ```
 
 Enable Hyper-V under windows virtual machine, reboot virtual machine.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
