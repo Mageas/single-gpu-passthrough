@@ -529,6 +529,15 @@ cpuset corresponds to the bindings of your host core.
 </cputune>
 ```
 
+You need to update `cpu mode`. MATCH YOUR CPU PASSTHROUGH
+```
+<cpu mode="host-passthrough" check="none" migratable="on">
+  <topology sockets="1" dies="1" cores="7" threads="2"/>
+  <cache mode="passthrough"/>
+  <feature policy="require" name="topoext"/>
+</cpu>
+```
+
 ### Nested virtualization
 
 This allows your virtual machine to bypass some anti-cheats
