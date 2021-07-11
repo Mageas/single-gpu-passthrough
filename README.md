@@ -266,7 +266,7 @@ KVM_NAME="YOUR_VM_NAME"
 
 ***Choose the Start/Stop scripts that most closely match your hardware.***
 
-My hardwarde for this scripts is:
+My hardware for this scripts is:
 - *AMD Ryzen 7 3700X*
 - *NVIDIA GeForce RTX 2070 SUPER*
 
@@ -391,7 +391,7 @@ systemctl start lightdm.service
   </table>
 </details>
 
-[Quentin](https://gitlab.com/dev.quentinfranchi/vfio) hardwarde for this scripts is:
+[Quentin](https://gitlab.com/dev.quentinfranchi/vfio) hardware for this scripts is:
 - *AMD Ryzen 5 2600*
 - *Radeon RX 590 Series*
 
