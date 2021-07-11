@@ -1,60 +1,67 @@
-# VFIO Single GUP Passthrough
+This tutorial allows to create a KVM for gaming.
 
-This tutorial is only for AMD CPUs.
+The VM is close to native performance with 3% of performance losses.
 
-## Summary
-- [Enable & Verify IOMMU](#enable--verify-iommu)
-- [Install required tools](#install-required-tools)
-- [Setup Guest OS](#setup-guest-os)
-- [Guest OS Hardware](#guest-os-hardware)
-    - [Add](#add)
-    - [Remove Optional](#remove-optional)
-- [GPU patching](#gpu-patching)
-- [Passthrough the GPU](#passthrough-the-gpu)
-    - [NVIDIA](#nvidia)
-    - [AMD](#amd)
-- [Libvirt Hooks](#libvirt-hooks)
-    - [NVIDIA](#nvidia)
-    - [AMD](#amd)
-- [Optional customization](#optional-customization)
-    - [CPU Pinning](#cpu-pinning)
-    - [Nested virtualization](#nested-virtualization)
+### **Table Of Contents**
+- [**Thanks to**](#thanks-to)
+- [**Enable & Verify IOMMU**](#enable-verify-iommu)
+- [**Install required tools**](#install-required-tools)
+- [**Enable required services**](#enable-required-services)
+- [**Setup Guest OS**](#setup-guest-os)
+- [**Install Windows**](#install-windows)
+- [**Attaching PCI devices**](#attaching-pci-devices)
+- [**Libvirt Hook Helper**](#libvirt-hook-helper)
+- [**Config Libvirt Hooks**](#config-libvirt-hooks)
+- [**Start/Stop Libvirt Hooks**](#startstop-libvirt-hooks)
+- [**Keyboard/Mouse Passthrough**](#keyboardmouse-passthrough)
+- [**Audio Passthrough**](#audio-passthrough)
+- [**Video card driver virtualisation detection**](#video-card-driver-virtualisation-detection)
+- [**vBIOS Patching**](#vbios-patching)
+- [**CPU Pinning**](#cpu-pinning)
+- [**Hyper-V Enlightenments**](#hyper-v-enlightenments)
+- [**Disk Tuning**](#disk-tuning)
+- [**Hugepages**](#hugepages)
+- [**CPU Governor**](#cpu-governor)
+- [**Windows drivers**](#windows-drivers)
+- [**Optimize Windows**](#optimize-windows)
 
-## Special Thanks to: 
+### **Thanks to**
 
-## [Arch wiki](https://wiki.archlinux.org/index.php/PCI_passthrough_via_OVMF)
+**[Arch wiki](https://wiki.archlinux.org/index.php/PCI_passthrough_via_OVMF)**  
 The best way to learn how GPU passthrough is working.
 
-## [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial)
+**[bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial)**  
 The best tutorial on GPU passthrough!
 
-## [joeknock90](https://github.com/joeknock90/Single-GPU-Passthrough)
+**[QaidVoid](https://github.com/QaidVoid/Complete-Single-GPU-Passthrough)**  
+The best tutorial to use VFIO!
+
+**[joeknock90](https://github.com/joeknock90/Single-GPU-Passthrough)**  
 Really good tutorial on the NVIDIA GPU patch.
 
-## [muta](https://www.youtube.com/watch?v=BUSrdUoedTo)
+**[SomeOrdinaryGamers](https://www.youtube.com/watch?v=BUSrdUoedTo)**  
 Bring me in the VFIO community.
 
-## [Zeptic](https://www.youtube.com/watch?v=VKh2eKPnmXs)
+**[Zeptic](https://www.youtube.com/watch?v=VKh2eKPnmXs)**  
 How to get good performances in nested virtualization.
 
-## [Quentin Franchi](https://gitlab.com/dev.quentinfranchi/vfio)
+**[Quentin Franchi](https://gitlab.com/dev.quentinfranchi/vfio)**  
 The scripts for AMD GPUs.
 
-## [All these people](https://github.com/joeknock90/Single-GPU-Passthrough#special-thanks-to)
+### **Enable & Verify IOMMU**
 
-## Enable & Verify IOMMU
+Ensure that ***AMD-Vi*** or ***Intel VT-d*** is supported by the CPU and enabled in the BIOS settings.
 
-Ensure that AMD-Vi is supported by the CPU and enabled in the BIOS settings.
+Enable IOMMU support by setting the kernel parameter depending on your CPU.
 
-Enable IOMMU support by setting the kernel parameter.
-
-| /etc/default/grub                                          |
-| :--------------------------------------------------------: |
-| GRUB_CMDLINE_LINUX_DEFAULT="... amd_iommu=on iommu=pt ..." |
+| /etc/default/grub                                              |
+|----------------------------------------------------------------|
+| `GRUB_CMDLINE_LINUX_DEFAULT="... amd_iommu=on iommu=pt ..."`   |
+| OR                                                             |
+| `GRUB_CMDLINE_LINUX_DEFAULT="... intel_iommu=on iommu=pt ..."` |
 
 After rebooting, check that the groups are valid.
-```
-$ shopt -s nullglob
+```sh
 for g in `find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V`; do
     echo "IOMMU Group ${g##*/}:"
     for d in $g/devices/*; do
@@ -76,148 +83,107 @@ IOMMU Group 2:
 
 If your card is not in an isolated group, you need to perform [ACS override patch](https://wiki.archlinux.org/index.php/PCI_passthrough_via_OVMF#Bypassing_the_IOMMU_groups_(ACS_override_patch)).
 
-## Install required tools
+### **Install required tools**
 
-These tools are required.
-```
-$ pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
-```
-
-Enable libvirtd.
-```
-$ systemctl enable --now libvirtd
+```sh
+pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
 ```
 
-Configuring libvirt.
-```
-$ virsh net-start default
-$ virsh net-autostart default
-```
+### **Enable required services**
 
-If you want to run virt-manager without sudo you can add your user to these groups.
-```
-$ usermod -aG kvm,input,libvirt <username>
+```sh
+systemctl enable --now libvirtd
 ```
 
-## Setup Guest OS
-
-When the VM creation wizard asks you to name your VM (final step before clicking "Finish"), check the "Customize before install" checkbox.
-
-**Overview**
-- **Chipset** to *Q35*
-- **Firmware** to *UEFI*
-
-**CPUs**
-- **CPU model** to *host-passthrough*
-- **CPU Topology**:
-    - **Sockets** to *1*
-    - **Cores** to *(number of cores you want to passthrough)*
-    - **Threads** to *(how many virtual threads per physical core)*
-
-You need to install the virtual machine.
-
-## Guest OS Hardware
-
-### Add
-
-You need to passthrough hardware to the guest.
-
-In the *PCI Host Device* you have to add all the components of the graphics card (NVIDIA or AMD). You can optionally add your audio, etc.
-
-In the *USB Host Device* you can add your mouse, keyboard, microphone, etc.
-
-### Remove (Optional)
-
-You can remove unused hardware:
-- *Display spice*
-- *Channel spice*
-- *Video QXL*
-
-## GPU patching
-
-**Only NVIDIA GPU's need to be patched**
-
-To get a rom for your GPU you can either download one from [here](https://www.techpowerup.com/vgabios/) or use nvflash to dump the bios currently on your GPU.
-
-Use the dumped/downloaded vbios and open it in a hex editor.
-
-Search for the strings "VIDEO".
-![images/vbios1.jpg](images/vbios1.jpg)
-
-Then you have to search for the first U that is in front of VIDEO.
-![images/vbios2.jpg](images/vbios2.jpg)
-
-Delete all of the code above the U then save your patched vbios.
-
-## Passthrough the GPU
-
-### NVIDIA
-
-Add custom rom to all **NVIDIA** components:
-```
-<hostdev>
-  ...
-  <rom file="/path/to/patched-vbios.rom"/>
-</hostdev>
+Start the default network manually.
+```sh
+virsh net-start default
+virsh net-autostart default
 ```
 
-These lines allow to pass the GPU correctly and to avoid the NVIDIA error 43:
-```
-<features>
-  ...
-  <hyperv>
-    ...
-    <vendor_id state="on" value="buttplug"/>
-  </hyperv>
-  <kvm>
-    <hidden state="on"/>
-  </kvm>
-</features>
+### **Setup Guest OS**
+
+Download [virtio](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) driver.
+
+Create your storage volume with the ***raw*** format. Select ***Customize before install*** on Final Step. 
+
+| In Overview                  |
+|:-----------------------------|
+| set **Chipset** to **Q35**   |
+| set **Firmware** to **UEFI** |
+
+| In CPUs                                              |
+|:-----------------------------------------------------|
+| set **CPU model** to **host-passthrough**            |
+| set **CPU Topology** match your cpu topology -1 core |
+
+| In Sata                        |
+|:-------------------------------|
+| set **Disk Bus** to **virtio** |
+
+| In NIC                             |
+|:-----------------------------------|
+| set **Device Model** to **virtio** |
+
+| In Add Hardware                                            |
+|:-----------------------------------------------------------|
+| select **CDROM** and point to `/path/to/virtio-driver.iso` |
+
+### **Install Windows**
+
+Windows can't detect the ***virtio disk***, so you need to ***Load Driver*** and select `virtio-iso/amd64/win10` when prompted.
+
+Windows can't connect to the internet, we will activate internet later in this tutorial.
+
+### **Attaching PCI devices**
+
+The devices you want to passthrough.
+
+| In Add PCI Host Device          |
+|:--------------------------------|
+| *PCI Host devices for your GPU* |
+| *Audio Controller*              |
+
+| In Add USB Host Device  |
+|:------------------------|
+| *Add whatever you want* |
+
+| Remove          |
+|:----------------|
+| `Display spice` |
+| `Channel spice` |
+| `Video QXL`     |
+| `Sound ich*`    |
+
+### **Libvirt Hook Helper**
+
+Libvirt hooks automate the process of running specific tasks during VM state change.
+
+More documentation on [The Passthrough Post](https://passthroughpo.st/simple-per-vm-libvirt-hooks-with-the-vfio-tools-hook-helper/) website.
+
+<details>
+  <summary><b>Create Libvirt Hook Helper</b></summary>
+
+```sh
+mkdir /etc/libvirt/hooks
+nvim /etc/libvirt/hooks/qemu
+chmod +x /etc/libvirt/hooks/qemu
 ```
 
-### AMD
+  <table>
+  <tr>
+  <th>
+  /etc/libvirt/hooks/qemu
+  </th>
+  </tr>
 
-These lines allow to pass the GPU correctly: 
-```
-<features>
-  ...
-  <hyperv>
-    ...
-    <vendor_id state="on" value="buttplug"/>
-  </hyperv>
-</features>
-```
+  <tr>
+  <td>
 
-## Libvirt Hooks
-
-Using libvirt hooks will allow us to automatically run scripts before the VM is started and after the VM has stopped.
-
-Your directory structure should looks like this:
-```
-/etc/libvirt/hooks
-├── kvm.conf
-├── qemu <- The script that does the magic
-└── qemu.d
-    └── {VM Name}
-        ├── prepare
-        │   └── begin
-        │       └── start.sh
-        └── release
-            └── end
-                └── revert.sh
-```
-
-qemu
-```
+```sh
 #!/bin/bash
 #
 # Author: Sebastiaan Meijer (sebastiaan@passthroughpo.st)
-#
-# Copy this file to /etc/libvirt/hooks, make sure it's called "qemu".
-# After this file is installed, restart libvirt.
-# From now on, you can easily add per-guest qemu hooks.
-# Add your hooks in /etc/libvirt/hooks/qemu.d/vm_name/hook_name/state_name.
-# For a list of available hooks, please refer to https://www.libvirt.org/hooks.html
 #
 
 GUEST_NAME="$1"
@@ -244,29 +210,85 @@ elif [ -d "$HOOKPATH" ]; then
 fi
 ```
 
-Go ahead and restart libvirt to use the newly installed hook helper
-```
-$ sudo service libvirtd restart
+  </td>
+  </tr>
+  </table>
+</details>
+
+### **Config Libvirt Hooks**
+
+This configuration file allows you to create variables that can be read by the scripts below.
+
+```sh
+nvim /etc/libvirt/hooks/kvm.conf
 ```
 
-**Do not copy the below scripts. Use them as a template, but write your own.**
+<table>
+<tr>
+<th>
+/etc/libvirt/hooks/kvm.conf
+</th>
+</tr>
 
-Make sure to substitute the correct bus addresses for the devices you'd like to passthrough to your VM. 
-Just in case it's still unclear, you get the virsh PCI device IDs from the [Enable & Verify IOMMU](#enable--verify-iommu) script.
-Translate the address for each device as follows: `IOMMU Group 1 01:00.0 ...` --> `VIRSH_...=pci_0000_01_00_0`.
+<tr>
+<td>
 
-kvm.conf
-```
+```conf
+# CONFIG
+VM_MEMORY=13312
+
+# VIRSH
 VIRSH_GPU_VIDEO=pci_0000_09_00_0
 VIRSH_GPU_AUDIO=pci_0000_09_00_1
-VIRSH_GPU_USB=pci_0000_09_00_2
-VIRSH_GPU_SERIAL=pci_0000_09_00_3
+VIRSH_USB=pci_0000_09_00_2
+VIRSH_SERIAL_BUS=pci_0000_09_00_3
 ```
 
-### NVIDIA
+</td>
+</tr>
+</table>
 
-start.sh
+`VM_MEMORY` in MiB is the memory allocated tho the guest.
+
+Make sure to substitute the correct bus addresses for the devices you'd like to passthrough to your VM.
+Just in case it's still unclear, you get the virsh PCI device IDs from the [Enable & Verify IOMMU](#enable-verify-iommu) script.
+Translate the address for each device as follows: IOMMU `Group 1 01:00.0 ...` --> `VIRSH_...=pci_0000_01_00_0`.
+
+### **Start/Stop Libvirt Hooks**
+
+This command will set the variable KVM_NAME so you can execute the rest of the commands without changing the name of the VM.
+
+```sh
+KVM_NAME="YOUR_VM_NAME"
 ```
+
+**If the scripts are not working, use the scripts as template and write your own.**
+
+***Choose the Start/Stop scripts that most closely match your hardware.***
+
+My hardwarde for this scripts is:
+- *AMD Ryzen 7 3700X*
+- *NVIDIA GeForce RTX 2070 SUPER*
+
+<details>
+  <summary><b>Create Start Script</b></summary>
+
+```sh
+mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
+```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/prepare/begin/start.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
 #!/bin/bash
 # Helpful to read output when debugging
 set -x
@@ -303,10 +325,31 @@ virsh nodedev-detach $VIRSH_SERIAL_BUS
 modprobe vfio-pci 
 ```
 
-revert.sh
+  </td>
+  </tr>
+  </table>
+</details>
+
+<details>
+  <summary><b>Create Stop Script</b></summary>
+
+```sh
+mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
 ```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/release/end/stop.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
 #!/bin/bash
-# Helpful to read output when debugging
 set -x
 
 # Load variables
@@ -317,7 +360,7 @@ modprobe -r vfio-pci
 modprobe -r vfio_iommu_type1
 modprobe -r vfio
 
-# Rebind GPU to Nvidia Driver
+# Re-Bind GPU to Nvidia Driver
 virsh nodedev-reattach $VIRSH_GPU_VIDEO
 virsh nodedev-reattach $VIRSH_GPU_AUDIO
 virsh nodedev-reattach $VIRSH_USB
@@ -343,10 +386,34 @@ modprobe nvidia
 systemctl start lightdm.service
 ```
 
-### AMD
+  </td>
+  </tr>
+  </table>
+</details>
 
-start.sh
+[Quentin](https://gitlab.com/dev.quentinfranchi/vfio) hardwarde for this scripts is:
+- *AMD Ryzen 5 2600*
+- *Radeon RX 590 Series*
+
+<details>
+  <summary><b>Create Start Script</b></summary>
+
+```sh
+mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
 ```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/prepare/begin/start.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
 #!/bin/bash
 set -x
 
@@ -385,8 +452,30 @@ modprobe vfio_pci
 modprobe vfio_iommu_type1
 ```
 
-revert.sh
+  </td>
+  </tr>
+  </table>
+</details>
+
+<details>
+  <summary><b>Create Stop Script</b></summary>
+
+```sh
+mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
 ```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/release/end/stop.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
 #!/bin/bash
 set -x
 
@@ -423,13 +512,274 @@ modprobe  snd_hda_intel
 systemctl start lightdm.service
 ```
 
-## Optional customization
+  </td>
+  </tr>
+  </table>
+</details>
 
-### CPU Pinning
+### **Keyboard/Mouse Passthrough**
 
-My setup has an AMD Ryzen 7 3700X which has 8 physical cores and 16 threads.
+Change the first line of the xml to:
 
-It's very important that when we passthrough a core, we include its sibling. To get a sense of your cpu topology, use the command `$ lscpu -e`. A matching core id (i.e. "CORE" column) means that the associated threads (i.e. "CPU" column) run on the same physical core.
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+```
+
+</td>
+</tr>
+</table>
+
+Find your keyboard and mouse devices in ***/dev/input/by-id***. You'd generally use the devices ending with ***event-kbd*** and ***event-mouse***. And the devices in your configuration right before closing `</domain>` tag.
+
+You can verify if it works by `cat /dev/input/by-id/DEVICE_NAME`.
+
+Replace ***MOUSE_NAME*** and ***KEYBOARD_NAME*** with your device id.
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <qemu:commandline>
+    <qemu:arg value='-object'/>
+    <qemu:arg value='input-linux,id=mouse1,evdev=/dev/input/by-id/MOUSE_NAME'/>
+    <qemu:arg value='-object'/>
+    <qemu:arg value='input-linux,id=kbd1,evdev=/dev/input/by-id/KEYBOARD_NAME,grab_all=on,repeat=on'/>
+  </qemu:commandline>
+</domain>
+```
+
+</td>
+</tr>
+</table>
+
+You need to include these devices in your qemu config.
+
+<table>
+<tr>
+<th>
+/etc/libvirt/qemu.conf
+</th>
+</tr>
+
+<tr>
+<td>
+
+```conf
+...
+user = "YOUR_USERNAME"
+group = "kvm"
+...
+cgroup_device_acl = [
+    "/dev/input/by-id/KEYBOARD_NAME",
+    "/dev/input/by-id/MOUSE_NAME",
+    "/dev/null", "/dev/full", "/dev/zero",
+    "/dev/random", "/dev/urandom",
+    "/dev/ptmx", "/dev/kvm", "/dev/kqemu",
+    "/dev/rtc","/dev/hpet", "/dev/sev"
+]
+...
+```
+
+</td>
+</tr>
+</table>
+
+Also, add the virtio devices (You cannot remove the PS/2 devices).
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+<devices>
+  ...
+  <input type='mouse' bus='virtio'/>
+  <input type='keyboard' bus='virtio'/>
+  ...
+</devices>
+...
+```
+
+</td>
+</tr>
+</table>
+
+### **Audio Passthrough**
+
+VM's audio can be routed to the host. You need **Pulseaudio**.
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <qemu:commandline>
+    ...
+    <qemu:arg value="-device"/>
+    <qemu:arg value="ich9-intel-hda,bus=pcie.0,addr=0x1b"/>
+    <qemu:arg value="-device"/>
+    <qemu:arg value="hda-micro,audiodev=hda"/>
+    <qemu:arg value="-audiodev"/>
+    <qemu:arg value="pa,id=hda,server=/run/user/1000/pulse/native"/>
+  </qemu:commandline>
+</devices>
+```
+
+</td>
+</tr>
+</table>
+
+### **Video card driver virtualisation detection**
+
+Video Card drivers refuse to run in Virtual Machine, so you need to spoof Hyper-V Vendor ID.
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+<features>
+  ...
+  <hyperv>
+    ...
+    <vendor_id state='on' value='buttplug'/>
+    ...
+  </hyperv>
+  ...
+</features>
+...
+```
+
+</td>
+</tr>
+</table>
+
+NVIDIA guest drivers also require hiding the KVM CPU leaf:
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+<features>
+  ...
+  <kvm>
+    <hidden state='on'/>
+  </kvm>
+  <ioapic driver="kvm"/>
+  ...
+</features>
+...
+```
+
+</td>
+</tr>
+</table>
+
+### **vBIOS Patching**
+
+<details>
+  <summary><b>How to patch NVIDIA vBIOS</b></summary>
+  
+  **Only NVIDIA GPU's need to be patched**
+
+  To get a rom for your GPU you can either download one from [here](https://www.techpowerup.com/vgabios/) or use nvflash to dump the bios currently on your GPU.
+
+  Use the dumped/downloaded vbios and open it in a hex editor.
+
+  Search for the strings "VIDEO".
+  ![images/vbios1.jpg](images/vbios1.jpg)
+
+  Then you have to search for the first U that is in front of VIDEO.
+  ![images/vbios2.jpg](images/vbios2.jpg)
+
+  Delete all of the code above the U then save your patched vbios.
+
+</details>
+
+To add the patched rom, in ***hostdev*** add ***rom***, only for the VGA pci:
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+<hostdev mode='subsystem' type='pci' managed='yes'>
+  <source>
+    ...
+  </source>
+  <rom file="/path/to/patched-vbios.rom"/>
+  ...
+</hostdev>
+...
+```
+
+</td>
+</tr>
+</table>
+
+### **CPU Pinning**
+
+My setup is an AMD Ryzen 7 3700X which has 8 physical cores and 16 threads (2 threads per core).
+
+<details>
+  <summary><b>How to bind the threads to the core</b></summary>
+
+It's very important that when we passthrough a core, we include its sibling. To get a sense of your cpu topology, use the command `lscpu -e`. A matching core id (i.e. "CORE" column) means that the associated threads (i.e. "CPU" column) run on the same physical core.
+
 ```
 CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ    MINMHZ
   0    0      0    0 0:0:0:0          yes 4823.4370 2200.0000
@@ -450,7 +800,8 @@ CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE    MAXMHZ    MINMHZ
  15    0      0    7 7:7:7:1          yes 4957.0308 2200.0000
 ```
 
-According to the logic seen above, here are my core and their threads binding
+According to the logic seen above, here are my core and their threads binding.
+
 ```
 Core 1: 0, 8
 Core 2: 1, 9
@@ -462,98 +813,513 @@ Core 7: 6, 14
 Core 8: 7, 15
 ```
 
-I want to get 1 core for the host and 7 cores for the host. I will let core 1 for my host (0, 8)
+</details>
 
-It's time to edit the XML configuration of our VM, I show you the final result, everything will be explained below.
-```
-<vcpu placement="static">14</vcpu>
-<iothreads>1</iothreads>
-<cputune>
-  <vcpupin vcpu="0" cpuset="1"/>
-  <vcpupin vcpu="1" cpuset="9"/>
-  <vcpupin vcpu="2" cpuset="2"/>
-  <vcpupin vcpu="3" cpuset="10"/>
-  <vcpupin vcpu="4" cpuset="3"/>
-  <vcpupin vcpu="5" cpuset="11"/>
-  <vcpupin vcpu="6" cpuset="4"/>
-  <vcpupin vcpu="7" cpuset="12"/>
-  <vcpupin vcpu="8" cpuset="5"/>
-  <vcpupin vcpu="9" cpuset="13"/>
-  <vcpupin vcpu="10" cpuset="6"/>
-  <vcpupin vcpu="11" cpuset="14"/>
-  <vcpupin vcpu="12" cpuset="7"/>
-  <vcpupin vcpu="13" cpuset="15"/>
-  <emulatorpin cpuset="0,8"/>
-  <iothreadpin iothread="1" cpuset="0,8"/>
-</cputune>
-```
+In this example, I want to get 1 core for the host and 7 cores for the guest. 
+I will let the ***core 1*** for my host, so ***0*** and ***8*** are the logical threads.
 
-This command allows you to give the number of threads you want to pass to the guest
-```
-<vcpu placement="static">14</vcpu>
-```
+I show you the final result, everything will be explained below.
 
-vcpu corresponds to the guest cores, increment by 1 starting with 0.  
-cpuset correspond to your threads you want to passthrough. It is necessary that your core and their threads binding follow each other.
-```
-<cputune>
-  <vcpupin vcpu="0" cpuset="1"/>
-  <vcpupin vcpu="1" cpuset="9"/>
-  <vcpupin vcpu="2" cpuset="2"/>
-  <vcpupin vcpu="3" cpuset="10"/>
-  <vcpupin vcpu="4" cpuset="3"/>
-  <vcpupin vcpu="5" cpuset="11"/>
-  <vcpupin vcpu="6" cpuset="4"/>
-  <vcpupin vcpu="7" cpuset="12"/>
-  <vcpupin vcpu="8" cpuset="5"/>
-  <vcpupin vcpu="9" cpuset="13"/>
-  <vcpupin vcpu="10" cpuset="6"/>
-  <vcpupin vcpu="11" cpuset="14"/>
-  <vcpupin vcpu="12" cpuset="7"/>
-  <vcpupin vcpu="13" cpuset="15"/>
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <vcpu placement="static">14</vcpu>
+  <iothreads>1</iothreads>
+  <cputune>
+    <vcpupin vcpu="0" cpuset="1"/>
+    <vcpupin vcpu="1" cpuset="9"/>
+    <vcpupin vcpu="2" cpuset="2"/>
+    <vcpupin vcpu="3" cpuset="10"/>
+    <vcpupin vcpu="4" cpuset="3"/>
+    <vcpupin vcpu="5" cpuset="11"/>
+    <vcpupin vcpu="6" cpuset="4"/>
+    <vcpupin vcpu="7" cpuset="12"/>
+    <vcpupin vcpu="8" cpuset="5"/>
+    <vcpupin vcpu="9" cpuset="13"/>
+    <vcpupin vcpu="10" cpuset="6"/>
+    <vcpupin vcpu="11" cpuset="14"/>
+    <vcpupin vcpu="12" cpuset="7"/>
+    <vcpupin vcpu="13" cpuset="15"/>
+    <emulatorpin cpuset="0,8"/>
+    <iothreadpin iothread="1" cpuset="0,8"/>
+  </cputune>
   ...
-</cputune>
-```
-
-The number of cores you want to passthrough
-```
-<iothreads>1</iothreads>
-```
-
-cpuset corresponds to the bindings of your host core.
-```
-<cputune>
-  ...
-  <emulatorpin cpuset="0,8"/>
-  <iothreadpin iothread="1" cpuset="0,8"/>
-</cputune>
-```
-
-You need to update `cpu mode`. MATCH YOUR CPU PASSTHROUGH
-```
-<cpu mode="host-passthrough" check="none" migratable="on">
-  <topology sockets="1" dies="1" cores="7" threads="2"/>
-  <cache mode="passthrough"/>
-  <feature policy="require" name="topoext"/>
-</cpu>
-```
-
-### Nested virtualization
-
-This allows your virtual machine to bypass some anti-cheats
-
-```
-<domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
-  ...
-  <qemu:commandline>
-    <qemu:arg value="-global"/>
-    <qemu:arg value="kvm-pit.lost_tick_policy=discard"/>
-    <qemu:arg value="-rtc"/>
-    <qemu:arg value="base=localtime"/>
-    <qemu:arg value="-cpu"/>
-    <qemu:arg value="host,host-cache-info=on,kvm=off,l3-cache=on,kvm-hint-dedicated=on,migratable=no,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,hv_vendor_id=Nvidia43FIX,+invtsc,+topoext"/>
-  </qemu:commandline>
 </domain>
 ```
 
-Enable Hyper-V under windows virtual machine, reboot virtual machine.
+</td>
+</tr>
+</table>
+
+<details>
+  <summary><b>Explanations of cpu pinning</b></summary>
+
+  <table>
+  <tr>
+  <td>
+  Number of threads to passthrough
+  </td>
+  </tr>
+
+  <tr>
+  <td>
+
+```xml
+<vcpu placement="static">14</vcpu>
+```
+
+  </td>
+  </tr>
+  </table>
+
+  <table>
+  <tr>
+  <td>
+  Same number as the iothreadpin below
+  </td>
+  </tr>
+
+  <tr>
+  <td>
+
+```xml
+<iothreads>1</iothreads>
+```
+
+  </td>
+  </tr>
+  </table>
+
+  <table>
+  <tr>
+  <td>
+  cpuset corresponds to the bindings of your host core
+  </td>
+  </tr>
+
+  <tr>
+  <td>
+
+```xml
+<cputune>
+  ...
+  <emulatorpin cpuset="0,8"/>
+  <iothreadpin iothread="1" cpuset="0,8"/>
+</cputune>
+```
+
+  </td>
+  </tr>
+  </table>
+
+  <table>
+  <tr>
+  <td>
+  vcpu corresponds to the guest cores, increment by 1 starting with 0.
+
+  cpuset correspond to your threads you want to passthrough. It is necessary that your core and their threads binding follow each other.
+  </td>
+  </tr>
+
+  <tr>
+  <td>
+
+```xml
+<cputune>
+  <vcpupin vcpu="0" cpuset="1"/>
+  <vcpupin vcpu="1" cpuset="9"/>
+  <vcpupin vcpu="2" cpuset="2"/>
+  <vcpupin vcpu="3" cpuset="10"/>
+  <vcpupin vcpu="4" cpuset="3"/>
+  <vcpupin vcpu="5" cpuset="11"/>
+  <vcpupin vcpu="6" cpuset="4"/>
+  <vcpupin vcpu="7" cpuset="12"/>
+  <vcpupin vcpu="8" cpuset="5"/>
+  <vcpupin vcpu="9" cpuset="13"/>
+  <vcpupin vcpu="10" cpuset="6"/>
+  <vcpupin vcpu="11" cpuset="14"/>
+  <vcpupin vcpu="12" cpuset="7"/>
+  <vcpupin vcpu="13" cpuset="15"/>
+  ...
+</cputune>
+```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+You need to match your CPU pathrough.
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <cpu mode="host-passthrough" check="none" migratable="on">
+    <topology sockets="1" dies="1" cores="7" threads="2"/>
+    <cache mode="passthrough"/>
+    <feature policy="require" name="topoext"/>
+  </cpu>
+  ...
+</domain>
+```
+
+</td>
+</tr>
+</table>
+
+### **Hyper-V Enlightenments**
+
+Hyper-V enlightenments help the guest VM handle virtualization tasks.
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <qemu:commandline>
+    ...
+    <qemu:arg value="-rtc"/>
+    <qemu:arg value="base=localtime"/>
+    <qemu:arg value="-cpu"/>
+    <qemu:arg value="host,host-cache-info=on,kvm=off,l3-cache=on,kvm-hint-dedicated=on,migratable=no,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,hv_vendor_id=buttplug,+invtsc,+topoext"/>
+  </qemu:commandline>
+</devices>
+```
+
+</td>
+</tr>
+</table>
+
+<details>
+  <summary><b>You can alternatively use this config</b></summary>
+
+  I do not use this configuration because I experienced mouse latency in games.
+
+  <table>
+  <tr>
+  <th>
+  XML
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+  ```xml
+  <features>
+      ...
+      <hyperv>
+        ...
+        <vpindex state='on'/>
+        <synic state='on'/>
+        <stimer state='on'/>
+        <reset state='on'/>
+        <frequencies state='on'/>
+      </hyperv>
+      ...
+  </features>
+  ```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+### **Disk Tuning**
+
+KVM and QEMU provide two paravirtualized storage backends:
+- virtio-blk (default)
+- virtio-scsi (new)
+
+For virtio-blk, you need to replace the `driver` line by:
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+<devices>
+  ...
+  <disk type="file" device="disk">
+    <driver name="qemu" type="raw" cache="none" io="threads" discard="unmap" iothread="1" queues="2"/>
+    ...
+  </disk>
+  ...
+</devices>
+...
+```
+
+</td>
+</tr>
+</table>
+
+For virtio-scsi, follow [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial/#----disk-tuning) tutorial.
+
+### **Hugepages**
+
+Memory (RAM) is divided up into basic segments called pages. By default, the x86 architecture has a page size of 4KB. CPUs utilize pages within the built in memory management unit ([MMU](https://en.wikipedia.org/wiki/Memory_management_unit)). Although the standard page size is suitable for many tasks, hugepages are a mechanism that allow the Linux kernel to take advantage of large amounts of memory with reduced overhead. Hugepages can vary in size anywhere from 2MB to 1GB.
+
+Many tutorials will have you reserve hugepages for your guest VM at host boot-time. There's a significant downside to this approach: a portion of RAM will be unavailable to your host even when the VM is inactive. In [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial) setup, he chose to allocate hugepages before the VM starts and deallocate those pages on VM shutdown.
+
+<details>
+  <summary><b>Create Alloc Hugepages Script</b></summary>
+
+```sh
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/alloc_hugepages.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/alloc_hugepages.sh
+```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/prepare/begin/alloc_hugepages.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
+#!/bin/bash
+
+## Load the config file
+source "/etc/libvirt/hooks/kvm.conf"
+
+## Calculate number of hugepages to allocate from memory (in MB)
+HUGEPAGES="$(($VM_MEMORY/$(($(grep Hugepagesize /proc/meminfo | awk '{print $2}')/1024))))"
+
+echo "Allocating hugepages..."
+echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
+ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
+
+TRIES=0
+while (( $ALLOC_PAGES != $HUGEPAGES && $TRIES < 1000 ))
+do
+  echo 1 > /proc/sys/vm/compact_memory            ## defrag ram
+  echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
+  ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
+  echo "Succesfully allocated $ALLOC_PAGES / $HUGEPAGES"
+  let TRIES+=1
+done
+
+if [ "$ALLOC_PAGES" -ne "$HUGEPAGES" ]
+then
+  echo "Not able to allocate all hugepages. Reverting..."
+  echo 0 > /proc/sys/vm/nr_hugepages
+  exit 1
+fi
+```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+<details>
+  <summary><b>Create Dealloc Hugepages Script</b></summary>
+
+```sh
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/dealloc_hugepages.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/dealloc_hugepages.sh
+```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/release/end/dealloc_hugepages.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
+#!/bin/bash
+
+echo 0 > /proc/sys/vm/nr_hugepages
+```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+<table>
+<tr>
+<th>
+XML
+</th>
+</tr>
+
+<tr>
+<td>
+
+```xml
+...
+  <memory unit="KiB">13631488</memory>
+  <currentMemory unit="KiB">13631488</currentMemory>
+  <memoryBacking>
+    <hugepages/>
+  </memoryBacking>
+  ...
+</domain>
+
+```
+
+</td>
+</tr>
+</table>
+
+The memory need to match your `VM_MEMORY` from your config *(to convert KiB to MiB you need to divide by 1024)*.
+
+### **CPU Governor**
+
+This performance tweak takes advantage of the [CPU frequency scaling governor](https://wiki.archlinux.org/title/CPU_frequency_scaling#Scaling_governors) in Linux.
+
+<details>
+  <summary><b>Create CPU Performance Script</b></summary>
+
+```sh
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/cpu_mode_performance.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/cpu_mode_performance.sh
+```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/prepare/begin/cpu_mode_performance.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
+#!/bin/bash
+
+## Enable CPU governor performance mode
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+for file in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo "performance" > $file; done
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+<details>
+  <summary><b>Create CPU Ondemand Script</b></summary>
+
+```sh
+nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/cpu_mode_ondemand.sh
+chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/cpu_mode_ondemand.sh
+```
+  <table>
+  <tr>
+  <th>
+    /etc/libvirt/hooks/qemu.d/VM_NAME/release/end/cpu_mode_ondemand.sh
+  </th>
+  </tr>
+
+  <tr>
+  <td>
+
+```sh
+#!/bin/bash
+
+## Enable CPU governor on-demand mode
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+for file in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo "ondemand" > $file; done
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+```
+
+  </td>
+  </tr>
+  </table>
+</details>
+
+### **Windows drivers**
+
+To get the *network*, *sound*, *mouse* and *keyboard* working properly you need to install the drivers.
+
+In `Device Manager` update *network*, *sound*, *mouse* and *keyboard* drivers with the local virtio iso `/path/to/virtio-driver`.
+
+### **Optimize Windows**
+
+#### *Windows debloater*
+
+```powershell
+iwr -useb https://git.io/debloat|iex
+```
+
+#### *Better performances*
+
+In *Windows Settings*:
+- set ***Power suply*** to ***Performances***
+
+If you have and NVIDIA card, in *NVIDIA Control Panel*:
+- set ***Texture filtering quality*** to ***High performance***
+- set ***Power management mode*** to ***Max performance***
+
+#### *Disable Windows Defender*
+
+Video tutorial: [How to Completely Turn Off Windows Defender in Windows 10](https://youtu.be/31TDHRegTLM)
+
+```
+Windows security & threat protection (
+    Deactivate all buttons
+)
+```
+```
+Task Scheduler (
+    Task Scheduler Library
+        Microsoft
+            Windows
+                Windows Defender (
+                    Select all
+                    Right click
+                    Disable
+                )
+)
+```
+```
+Edit Group Policy (
+    Computer Configuration
+        Administrative Templates
+            Windows Components
+                Microsoft Defender Antivirus (
+                    Turn off Microsoft Defender Antivirus
+                    Select Enabled
+                )
+)
+```
