@@ -989,6 +989,8 @@ XML
 
 Hyper-V enlightenments help the guest VM handle virtualization tasks.
 
+More documentation on [fossies.org](https://fossies.org/linux/qemu/docs/hyperv.txt) for qemu enlightenments.
+
 <table>
 <tr>
 <th>
