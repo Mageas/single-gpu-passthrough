@@ -1068,12 +1068,14 @@ XML
 <tr>
 <td>
 
+You have to make `queues` correspond to the number of ***vcpus*** you pass to the host. In my case ***14*** because I pass *7* cores with *2* threads per core. Remember the [CPU Pinning](#cpu-pinning) section.
+
 ```xml
 ...
 <devices>
   ...
   <disk type="file" device="disk">
-    <driver name="qemu" type="raw" cache="none" io="threads" discard="unmap" iothread="1" queues="2"/>
+    <driver name="qemu" type="raw" cache="none" io="threads" discard="unmap" iothread="1" queues="14"/>
     ...
   </disk>
   ...
