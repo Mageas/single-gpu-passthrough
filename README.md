@@ -60,6 +60,11 @@ Enable IOMMU support by setting the kernel parameter depending on your CPU.
 | OR                                                             |
 | `GRUB_CMDLINE_LINUX_DEFAULT="... intel_iommu=on iommu=pt ..."` |
 
+Generate grub.cfg
+```sh
+grub-mkconfig -o /boot/grub/grub.cfg
+```
+
 After rebooting, check that the groups are valid.
 ```sh
 for g in `find /sys/kernel/iommu_groups/* -maxdepth 0 -type d | sort -V`; do
