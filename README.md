@@ -23,6 +23,7 @@ The VM is close to native performance with 3% of performance losses.
 - [**Hugepages**](#hugepages)
 - [**CPU Governor**](#cpu-governor)
 - [**Windows drivers**](#windows-drivers)
+- [**Enable Hyper-V**](#enable-hyper-v)
 - [**Optimize Windows**](#optimize-windows)
 
 ### **Thanks to**
@@ -1282,6 +1283,18 @@ cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 To get the *network*, *sound*, *mouse* and *keyboard* working properly you need to install the drivers.
 
 In `Device Manager` update *network*, *sound*, *mouse* and *keyboard* drivers with the local virtio iso `/path/to/virtio-driver`.
+
+### **Enable Hyper-V**
+
+Enable Hyper-V using PowerShell:
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
+```
+
+Enable the Hyper-V through Settings:
+
+Search for `Turn Windows Features on or off`, select **Hyper-V** and click **Ok**.
 
 ### **Optimize Windows**
 
