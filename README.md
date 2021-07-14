@@ -148,7 +148,6 @@ The devices you want to passthrough.
 | In Add PCI Host Device          |
 |:--------------------------------|
 | *PCI Host devices for your GPU* |
-| *Audio Controller*              |
 
 | In Add USB Host Device  |
 |:------------------------|
@@ -637,7 +636,9 @@ XML
 
 ### **Audio Passthrough**
 
-VM's audio can be routed to the host. You need **Pulseaudio**.
+This section is only useful if you intend to use the audio output from your GPU. If not, in [Attaching PCI devices](#attaching-pci-devices) add your **Audio Controller** in `Add PCI Host Device`.
+
+VM's audio can be routed to the host. You need **Pulseaudio** (or **Pipewire** with *pipewire-pulse*).
 
 <table>
 <tr>
