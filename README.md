@@ -1,20 +1,18 @@
 This tutorial allows to create a KVM for gaming.
 
-The VM is close to native performance with 3% of performance losses.
+The VM is close to native performance.
 
 ### **Table Of Contents**
+- [**Table Of Contents**](#table-of-contents)
 - [**Thanks to**](#thanks-to)
-- [**Enable & Verify IOMMU**](#enable-verify-iommu)
-- [**Install required tools**](#install-required-tools)
-- [**Enable required services**](#enable-required-services)
+- [**Enable & Verify IOMMU**](#enable--verify-iommu)
+- [**Configuring Libvirt**](#configuring-libvirt)
 - [**Setup Guest OS**](#setup-guest-os)
 - [**Install Windows**](#install-windows)
-- [**Attaching PCI devices**](#attaching-pci-devices)
+- [**Attaching devices**](#attaching-devices)
 - [**Libvirt Hook Helper**](#libvirt-hook-helper)
 - [**Config Libvirt Hooks**](#config-libvirt-hooks)
 - [**Start/Stop Libvirt Hooks**](#startstop-libvirt-hooks)
-- [**Keyboard/Mouse Passthrough**](#keyboardmouse-passthrough)
-- [**Audio Passthrough**](#audio-passthrough)
 - [**Video card driver virtualisation detection**](#video-card-driver-virtualisation-detection)
 - [**vBIOS Patching**](#vbios-patching)
 - [**CPU Pinning**](#cpu-pinning)
@@ -22,9 +20,8 @@ The VM is close to native performance with 3% of performance losses.
 - [**Disk Tuning**](#disk-tuning)
 - [**Hugepages**](#hugepages)
 - [**CPU Governor**](#cpu-governor)
-- [**Windows drivers**](#windows-drivers)
-- [**Enable Hyper-V**](#enable-hyper-v)
-- [**Optimize Windows**](#optimize-windows)
+- [**Update drivers on Windows**](#update-drivers-on-windows)
+- [**Enable Hyper-V on Windows**](#enable-hyper-v-on-windows)
 
 ### **Thanks to**
 
@@ -56,7 +53,7 @@ Ensure that ***AMD-Vi*** or ***Intel VT-d*** is supported by the CPU and enabled
 Enable IOMMU support by setting the kernel parameter depending on your CPU.
 
 | /etc/default/grub                                              |
-|----------------------------------------------------------------|
+| -------------------------------------------------------------- |
 | `GRUB_CMDLINE_LINUX_DEFAULT="... amd_iommu=on iommu=pt ..."`   |
 | OR                                                             |
 | `GRUB_CMDLINE_LINUX_DEFAULT="... intel_iommu=on iommu=pt ..."` |
@@ -89,51 +86,66 @@ IOMMU Group 2:
 
 If your card is not in an isolated group, you need to perform [ACS override patch](https://wiki.archlinux.org/index.php/PCI_passthrough_via_OVMF#Bypassing_the_IOMMU_groups_(ACS_override_patch)).
 
-### **Install required tools**
+### **Configuring Libvirt**
 
+Install the packages.
 ```sh
 pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
 ```
 
-### **Enable required services**
+Update the permissions of libvirt to run the virtual machine as non root.
+| /etc/libvirt/libvirtd.conf    |
+| ----------------------------- |
+| `unix_sock_group = "libvirt"` |
+| `unix_sock_rw_perms = "0770"` |
 
+Add your user to the libvirt group.
 ```sh
-systemctl enable --now libvirtd
+sudo usermod -a -G libvirt $(whoami)
+```
+```sh
+sudo systemctl enable --now libvirtd
 ```
 
-Start the default network manually.
+Auto start the virsh internal network
 ```sh
-virsh net-start default
-virsh net-autostart default
+sudo virsh net-autostart default
 ```
 
+If you prefer, you can manually start the virsh internal network
+```sh
+sudo virsh net-start default
+```
+ 
 ### **Setup Guest OS**
 
 Download [virtio](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) driver.
 
 Create your storage volume with the ***raw*** format. Select ***Customize before install*** on Final Step. 
 
-| In Overview                  |
-|:-----------------------------|
-| set **Chipset** to **Q35**   |
-| set **Firmware** to **UEFI** |
+| In Overview                                           |
+| :---------------------------------------------------- |
+| set **Chipset** to **Q35**                            |
+| *for Windows 10* set **Firmware** to **UEFI**         |
+| *for Windows 11* set **Firmware** to **UEFI secboot** |
 
 | In CPUs                                              |
-|:-----------------------------------------------------|
+| :--------------------------------------------------- |
 | set **CPU model** to **host-passthrough**            |
 | set **CPU Topology** match your cpu topology -1 core |
 
 | In Sata                        |
-|:-------------------------------|
+| :----------------------------- |
 | set **Disk Bus** to **virtio** |
 
 | In NIC                             |
-|:-----------------------------------|
+| :--------------------------------- |
 | set **Device Model** to **virtio** |
 
-| In Add Hardware                                            |
-|:-----------------------------------------------------------|
-| select **CDROM** and point to `/path/to/virtio-driver.iso` |
+| In Add Hardware                                             |
+| :---------------------------------------------------------- |
+| select **CDROM** and point to `/path/to/virtio-driver.iso`  |
+| *for Windows 11* add **TPM** and set **Version** to **2.0** |
 
 ### **Install Windows**
 
@@ -141,20 +153,21 @@ Windows can't detect the ***virtio disk***, so you need to ***Load Driver*** and
 
 Windows can't connect to the internet, we will activate internet later in this tutorial.
 
-### **Attaching PCI devices**
+### **Attaching devices**
 
 The devices you want to passthrough.
 
-| In Add PCI Host Device          |
-|:--------------------------------|
-| *PCI Host devices for your GPU* |
+| In Add PCI Host Device               |
+| :----------------------------------- |
+| *PCI Host devices for your GPU*      |
+| *PCI Host device for your soundcard* |
 
-| In Add USB Host Device  |
-|:------------------------|
-| *Add whatever you want* |
+| In Add USB Host Device      |
+| :-------------------------- |
+| *Add your keyboard & mouse* |
 
 | Remove          |
-|:----------------|
+| :-------------- |
 | `Display spice` |
 | `Channel spice` |
 | `Video QXL`     |
@@ -170,9 +183,9 @@ More documentation on [The Passthrough Post](https://passthroughpo.st/simple-per
   <summary><b>Create Libvirt Hook Helper</b></summary>
 
 ```sh
-mkdir /etc/libvirt/hooks
-nvim /etc/libvirt/hooks/qemu
-chmod +x /etc/libvirt/hooks/qemu
+sudo mkdir /etc/libvirt/hooks
+sudo vim /etc/libvirt/hooks/qemu
+sudo chmod +x /etc/libvirt/hooks/qemu
 ```
 
   <table>
@@ -224,10 +237,6 @@ fi
 
 This configuration file allows you to create variables that can be read by the scripts below.
 
-```sh
-nvim /etc/libvirt/hooks/kvm.conf
-```
-
 <table>
 <tr>
 <th>
@@ -239,9 +248,6 @@ nvim /etc/libvirt/hooks/kvm.conf
 <td>
 
 ```conf
-# CONFIG
-VM_MEMORY=13312
-
 # VIRSH
 VIRSH_GPU_VIDEO=pci_0000_09_00_0
 VIRSH_GPU_AUDIO=pci_0000_09_00_1
@@ -252,8 +258,6 @@ VIRSH_SERIAL_BUS=pci_0000_09_00_3
 </td>
 </tr>
 </table>
-
-`VM_MEMORY` in MiB is the memory allocated tho the guest.
 
 Make sure to substitute the correct bus addresses for the devices you'd like to passthrough to your VM.
 Just in case it's still unclear, you get the virsh PCI device IDs from the [Enable & Verify IOMMU](#enable-verify-iommu) script.
@@ -271,7 +275,7 @@ KVM_NAME="YOUR_VM_NAME"
 
 ***Choose the Start/Stop scripts that most closely match your hardware.***
 
-My hardware for this scripts is:
+My hardware:
 - *AMD Ryzen 7 3700X*
 - *NVIDIA GeForce RTX 2070 SUPER*
 
@@ -279,9 +283,9 @@ My hardware for this scripts is:
   <summary><b>Create Start Script</b></summary>
 
 ```sh
-mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
+mkdir -p /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/start.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/start.sh
 ```
   <table>
   <tr>
@@ -339,9 +343,9 @@ modprobe vfio-pci
   <summary><b>Create Stop Script</b></summary>
 
 ```sh
-mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
+mkdir -p /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/stop.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/stop.sh
 ```
   <table>
   <tr>
@@ -396,7 +400,7 @@ systemctl start lightdm.service
   </table>
 </details>
 
-[Quentin](https://gitlab.com/dev.quentinfranchi/vfio) hardware for this scripts is:
+[Quentin](https://gitlab.com/dev.quentinfranchi/vfio) hardware:
 - *AMD Ryzen 5 2600*
 - *Radeon RX 590 Series*
 
@@ -404,9 +408,9 @@ systemctl start lightdm.service
   <summary><b>Create Start Script</b></summary>
 
 ```sh
-mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/start.sh
+mkdir -p /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/start.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/start.sh
 ```
   <table>
   <tr>
@@ -466,9 +470,9 @@ modprobe vfio_iommu_type1
   <summary><b>Create Stop Script</b></summary>
 
 ```sh
-mkdir -p /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/stop.sh
+mkdir -p /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/stop.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/stop.sh
 ```
   <table>
   <tr>
@@ -521,152 +525,6 @@ systemctl start lightdm.service
   </tr>
   </table>
 </details>
-
-### **Keyboard/Mouse Passthrough**
-
-Change the first line of the xml to:
-
-<table>
-<tr>
-<th>
-XML
-</th>
-</tr>
-
-<tr>
-<td>
-
-```xml
-<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
-```
-
-</td>
-</tr>
-</table>
-
-Find your keyboard and mouse devices in ***/dev/input/by-id***. You'd generally use the devices ending with ***event-kbd*** and ***event-mouse***. And the devices in your configuration right before closing `</domain>` tag.
-
-You can verify if it works by `cat /dev/input/by-id/DEVICE_NAME`.
-
-Replace ***MOUSE_NAME*** and ***KEYBOARD_NAME*** with your device id.
-
-<table>
-<tr>
-<th>
-XML
-</th>
-</tr>
-
-<tr>
-<td>
-
-```xml
-...
-  <qemu:commandline>
-    <qemu:arg value='-object'/>
-    <qemu:arg value='input-linux,id=mouse1,evdev=/dev/input/by-id/MOUSE_NAME'/>
-    <qemu:arg value='-object'/>
-    <qemu:arg value='input-linux,id=kbd1,evdev=/dev/input/by-id/KEYBOARD_NAME,grab_all=on,repeat=on'/>
-  </qemu:commandline>
-</domain>
-```
-
-</td>
-</tr>
-</table>
-
-You need to include these devices in your qemu config.
-
-<table>
-<tr>
-<th>
-/etc/libvirt/qemu.conf
-</th>
-</tr>
-
-<tr>
-<td>
-
-```conf
-...
-user = "YOUR_USERNAME"
-group = "kvm"
-...
-cgroup_device_acl = [
-    "/dev/input/by-id/KEYBOARD_NAME",
-    "/dev/input/by-id/MOUSE_NAME",
-    "/dev/null", "/dev/full", "/dev/zero",
-    "/dev/random", "/dev/urandom",
-    "/dev/ptmx", "/dev/kvm", "/dev/kqemu",
-    "/dev/rtc","/dev/hpet", "/dev/sev"
-]
-...
-```
-
-</td>
-</tr>
-</table>
-
-Also, add the virtio devices (You cannot remove the PS/2 devices).
-
-<table>
-<tr>
-<th>
-XML
-</th>
-</tr>
-
-<tr>
-<td>
-
-```xml
-...
-<devices>
-  ...
-  <input type='mouse' bus='virtio'/>
-  <input type='keyboard' bus='virtio'/>
-  ...
-</devices>
-...
-```
-
-</td>
-</tr>
-</table>
-
-### **Audio Passthrough**
-
-This section is only useful if you intend to use the audio output from your GPU. If not, in [Attaching PCI devices](#attaching-pci-devices) add your **Audio Controller** in `Add PCI Host Device`.
-
-VM's audio can be routed to the host. You need **Pulseaudio** (or **Pipewire** with *pipewire-pulse*).
-
-<table>
-<tr>
-<th>
-XML
-</th>
-</tr>
-
-<tr>
-<td>
-
-```xml
-...
-  <qemu:commandline>
-    ...
-    <qemu:arg value="-device"/>
-    <qemu:arg value="ich9-intel-hda,bus=pcie.0,addr=0x1b"/>
-    <qemu:arg value="-device"/>
-    <qemu:arg value="hda-micro,audiodev=hda"/>
-    <qemu:arg value="-audiodev"/>
-    <qemu:arg value="pa,id=hda,server=/run/user/1000/pulse/native"/>
-  </qemu:commandline>
-</devices>
-```
-
-</td>
-</tr>
-</table>
 
 ### **Video card driver virtualisation detection**
 
@@ -743,10 +601,10 @@ XML
   Search for the strings "VIDEO".
   ![images/vbios1.jpg](images/vbios1.jpg)
 
-  Then you have to search for the first U that is in front of VIDEO.
+  Then you have to search for the first `U.` that is in front of VIDEO.
   ![images/vbios2.jpg](images/vbios2.jpg)
 
-  Delete all of the code above the U then save your patched vbios.
+  Delete all of the code above the `U.` then save your patched vbios.
 
 </details>
 
@@ -965,7 +823,7 @@ XML
   </table>
 </details>
 
-You need to match your CPU pathrough.
+You need to match your CPU pathrough *(Update `cores` and `threads` if needed)*.
 
 <table>
 <tr>
@@ -1061,11 +919,9 @@ XML
 
 ### **Disk Tuning**
 
-KVM and QEMU provide two paravirtualized storage backends:
-- virtio-blk (default)
-- virtio-scsi (new)
+For more explanations on virtio scsi, check [bryansteiner tutorial](https://github.com/bryansteiner/gpu-passthrough-tutorial/#----disk-tuning).
 
-For virtio-blk, you need to replace the `driver` line by:
+Make sure you have `iothreads` in your xml.
 
 <table>
 <tr>
@@ -1077,26 +933,27 @@ XML
 <tr>
 <td>
 
-You have to make `queues` correspond to the number of ***vcpus*** you pass to the host. In my case ***14*** because I pass *7* cores with *2* threads per core. Remember the [CPU Pinning](#cpu-pinning) section.
-
 ```xml
-...
 <devices>
   ...
-  <disk type="file" device="disk">
-    <driver name="qemu" type="raw" cache="none" io="threads" discard="unmap" iothread="1" queues="14"/>
-    ...
+  <disk type='file' device='disk'>
+      <driver name='qemu' type='raw' cache='none' io='threads' discard='unmap' queues='8'/>
+      <source dev='/path/to/your/vm.img'/>
+      <target dev='sdc' bus='scsi'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='2'/>
   </disk>
   ...
+  <controller type='scsi' index='0' model='virtio-scsi'>
+      <driver iothread='1' queues='8'/>
+      <address type='pci' domain='0x0000' bus='0x03' slot='0x00' function='0x0'/>
+  </controller>       
+  ...
 </devices>
-...
 ```
 
 </td>
 </tr>
 </table>
-
-For virtio-scsi, follow [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial/#----disk-tuning) tutorial.
 
 ### **Hugepages**
 
@@ -1104,12 +961,37 @@ Memory (RAM) is divided up into basic segments called pages. By default, the x86
 
 Many tutorials will have you reserve hugepages for your guest VM at host boot-time. There's a significant downside to this approach: a portion of RAM will be unavailable to your host even when the VM is inactive. In [bryansteiner](https://github.com/bryansteiner/gpu-passthrough-tutorial) setup, he chose to allocate hugepages before the VM starts and deallocate those pages on VM shutdown.
 
+Update your kvm config.
+<table>
+<tr>
+<th>
+/etc/libvirt/hooks/kvm.conf
+</th>
+</tr>
+
+<tr>
+<td>
+
+```conf
+# CONFIG
+VM_MEMORY=13312
+
+# VIRSH
+...
+```
+
+</td>
+</tr>
+</table>
+
+`VM_MEMORY` in MiB is the memory allocated tho the guest.
+
 <details>
   <summary><b>Create Alloc Hugepages Script</b></summary>
 
 ```sh
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/alloc_hugepages.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/alloc_hugepages.sh
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/alloc_hugepages.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/alloc_hugepages.sh
 ```
   <table>
   <tr>
@@ -1161,8 +1043,8 @@ fi
   <summary><b>Create Dealloc Hugepages Script</b></summary>
 
 ```sh
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/dealloc_hugepages.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/dealloc_hugepages.sh
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/dealloc_hugepages.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/dealloc_hugepages.sh
 ```
   <table>
   <tr>
@@ -1221,8 +1103,8 @@ This performance tweak takes advantage of the [CPU frequency scaling governor](h
   <summary><b>Create CPU Performance Script</b></summary>
 
 ```sh
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/cpu_mode_performance.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/prepare/begin/cpu_mode_performance.sh
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/cpu_mode_performance.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/prepare/begin/cpu_mode_performance.sh
 ```
   <table>
   <tr>
@@ -1252,8 +1134,8 @@ cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
   <summary><b>Create CPU Ondemand Script</b></summary>
 
 ```sh
-nvim /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/cpu_mode_ondemand.sh
-chmod +x /etc/libvirt/hooks/qemu.d/$KVM_NAME/release/end/cpu_mode_ondemand.sh
+vim /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/cpu_mode_ondemand.sh
+chmod +x /etc/libvirt/hooks/qemu.d/${KVM_NAME}/release/end/cpu_mode_ondemand.sh
 ```
   <table>
   <tr>
@@ -1279,13 +1161,13 @@ cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
   </table>
 </details>
 
-### **Windows drivers**
+### **Update drivers on Windows**
 
-To get the *network*, *sound*, *mouse* and *keyboard* working properly you need to install the drivers.
+To get the *network* working properly you need to install the drivers.
 
-In `Device Manager` update *network*, *sound*, *mouse* and *keyboard* drivers with the local virtio iso `/path/to/virtio-driver`.
+In `Device Manager` update drivers with the local virtio iso `/path/to/virtio-driver`.
 
-### **Enable Hyper-V**
+### **Enable Hyper-V on Windows**
 
 Enable Hyper-V using PowerShell:
 
@@ -1296,53 +1178,3 @@ Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
 Enable the Hyper-V through Settings:
 
 Search for `Turn Windows Features on or off`, select **Hyper-V** and click **Ok**.
-
-### **Optimize Windows**
-
-#### *Windows debloater*
-
-```powershell
-iwr -useb https://git.io/debloat|iex
-```
-
-#### *Better performances*
-
-In *Windows Settings*:
-- set ***Power suply*** to ***Performances***
-
-If you have and NVIDIA card, in *NVIDIA Control Panel*:
-- set ***Texture filtering quality*** to ***High performance***
-- set ***Power management mode*** to ***Max performance***
-
-#### *Disable Windows Defender*
-
-Video tutorial: [How to Completely Turn Off Windows Defender in Windows 10](https://youtu.be/31TDHRegTLM)
-
-```
-Windows security & threat protection (
-    Deactivate all buttons
-)
-```
-```
-Task Scheduler (
-    Task Scheduler Library
-        Microsoft
-            Windows
-                Windows Defender (
-                    Select all
-                    Right click
-                    Disable
-                )
-)
-```
-```
-Edit Group Policy (
-    Computer Configuration
-        Administrative Templates
-            Windows Components
-                Microsoft Defender Antivirus (
-                    Turn off Microsoft Defender Antivirus
-                    Select Enabled
-                )
-)
-```
