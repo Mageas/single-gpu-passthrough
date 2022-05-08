@@ -93,6 +93,11 @@ Install the packages.
 pacman -S --needed qemu libvirt edk2-ovmf virt-manager dnsmasq ebtables
 ```
 
+*For windows 11, install the **swtpm** package.*
+```sh
+pacman -S --needed swtpm
+```
+
 Update the permissions of libvirt to run the virtual machine as non root.
 | /etc/libvirt/libvirtd.conf    |
 | ----------------------------- |
